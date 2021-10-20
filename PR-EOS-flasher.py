@@ -26,29 +26,7 @@ def DB_flat_to_lookup_dict(result_flat):
     lookup_key = result_flat["ComponentName"]
     return {lookup_key:result_flat}
 
-# read component properties and binary interaction parameters from database
-dynamodb = boto3.resource('dynamodb', region_name="us-east-1")
-table = dynamodb.Table('MCFlashComponentProperties')
-response = table.scan()
-rezzy = process_DB_response(response)
-lookup_dict = lmap(DB_flat_to_lookup_dict, rezzy)
-flatten_lookup = flatten_dict(lookup_dict)
-
-# test data
-test_input ={'Temperature':200,
-             'Pressure':1800,
-             'run_id': 1,
-             'Mixture_Weight' : {'H2S': 1.368,
-                                 'CH4': 10.238,
-                                 'i-C4':20.616,
-                                 'nC8': 27.91,
-                                 'nC15':39.862
-                                },
-             'ComponentProperties' : flatten_lookup
-            }
-
-
-def add_wilson_correlation(componentName, in_data = test_input):
+def add_wilson_correlation(componentName, in_data):
     componentProps = in_data["ComponentProperties"][componentName]
     temp_rankine = in_data["Temperature"] + 460
     press = in_data["Pressure"]
@@ -61,7 +39,7 @@ def add_wilson_correlation(componentName, in_data = test_input):
     componentProps["K_i"] = K_wilson
     return  {componentName: componentProps}
 
-def calc_feed_mols(componentName, in_data = test_input):
+def calc_feed_mols(componentName, in_data):
     componentProps = in_data["ComponentProperties"][componentName]
     mw = componentProps["MW"]
     mix_wt_frac = in_data['Mixture_Weight'][componentName] / 100
@@ -82,13 +60,6 @@ def add_mol_frac(componentName, in_data):
     these_vals["z_i"] = mol_frac
     return {componentName : these_vals}
 
-component_ls = test_input['Mixture_Weight'].keys()
-aug1 = lmap(add_wilson_correlation, component_ls)
-aug2 = flatten_dict(lmap(calc_feed_mols, component_ls))
-aug3 = flatten_dict(lmap(lambda x: add_mol_frac(x,aug2), component_ls))
-
-test_input["ComponentProperties"] = aug3
-
 ###-----------------------------------------------------------######
 
 def rashford_rice(full_input):
@@ -97,7 +68,6 @@ def rashford_rice(full_input):
     def func_rr(x):
         return  sum( lmap( lambda y: y["z_i"] * (1 - y["K_i"]) / (y["K_i"] + x[0] * ((1 - y["K_i"]) )), compProps.values()))
     L_root = fsolve(func_rr, [0.5])[0]
-    print(L_root)
     V = 1 - L_root
     xi = lmap( lambda x: x["z_i"] / (x["K_i"] + L_root * (1 -x["K_i"])), compProps.values())
     yi = lmap( lambda x: x["K_i"] * x["z_i"] / (x["K_i"] + L_root * (1 -x["K_i"])), compProps.values())
@@ -111,6 +81,8 @@ def rashford_rice(full_input):
 
     update_in_place = lmap(update_component_props, consolidated_x_y)
     full_input["ComponentProperties"] = compProps
+    full_input["Liquid Fraction"] = L_root
+    full_input["Vapor Fraction"] = V
     return full_input
     
 
@@ -194,14 +166,10 @@ def PR_mixture(full_input, vl_toggle = "Vapor"):
              "B": B_mix,
              "a_alpha": mix_a_alf}
 
-pipe = compose(add_PR_pc_properties, rashford_rice)
-qq = pipe(test_input)
 
 def calc_mix_props(full_input, vap_liq):
     return {"Phase": vap_liq,
-            "PR-Results" : PR_mixture(full_input,vap_liq)}
-
-mixture_props = lmap(lambda x:calc_mix_props(qq,x),["vapor","liquid"])
+            "EOS-Results" : PR_mixture(full_input,vap_liq)}
 
 def add_partial_fugacity( mixture_res, full_component_data):
     compProps = full_component_data["ComponentProperties"]
@@ -210,10 +178,10 @@ def add_partial_fugacity( mixture_res, full_component_data):
 
     def calc_sc_partial_fugacity(cName, phase):
         B_i = compProps[cName]["B_i"]
-        B = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["PR-Results"]["B"]
-        A = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["PR-Results"]["A"]
-        a_alfa = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["PR-Results"]["a_alpha"]
-        Z = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["PR-Results"]["Z-factor"]
+        B = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["EOS-Results"]["B"]
+        A = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["EOS-Results"]["A"]
+        a_alfa = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["EOS-Results"]["a_alpha"]
+        Z = filter(lambda x:x["Phase"] == phase, mixture_res)[0]["EOS-Results"]["Z-factor"]
         if phase == "liquid":
             part = compProps[cName]["x_i"]
         else:
@@ -286,7 +254,44 @@ def fugacity_convergence(mixture_res, full_input):
         n_k_multipliers = check_t[0]
         conv_check = check_t[1]
 
-    return (n_mix_props,n_mix_set)
+    return [n_mix_props,n_mix_set]
 
+
+# read component properties and binary interaction parameters from database
+dynamodb = boto3.resource('dynamodb', region_name="us-east-1")
+table = dynamodb.Table('MCFlashComponentProperties')
+response = table.scan()
+rezzy = process_DB_response(response)
+lookup_dict = lmap(DB_flat_to_lookup_dict, rezzy)
+flatten_lookup = flatten_dict(lookup_dict)
+
+# test data
+test_input ={'Temperature':200,
+             'Pressure':1800,
+             'run_id': 1,
+             'Mixture_Weight' : {'H2S': 1.368,
+                                 'CH4': 10.238,
+                                 'i-C4':20.616,
+                                 'nC8': 27.91,
+                                 'nC15':39.862
+                                },
+             'ComponentProperties' : flatten_lookup
+            }
+
+
+component_ls = test_input['Mixture_Weight'].keys()
+aug1 = lmap(lambda x: add_wilson_correlation(x,test_input), component_ls)
+aug2 = flatten_dict(lmap(lambda x: calc_feed_mols(x, test_input), component_ls))
+aug3 = flatten_dict(lmap(lambda x: add_mol_frac(x,aug2), component_ls))
+
+test_input["ComponentProperties"] = aug3
+
+#-----#
+# complete one iteration for setup
+pipe = compose(add_PR_pc_properties, rashford_rice)
+qq = pipe(test_input) 
+mixture_props = lmap(lambda x:calc_mix_props(qq,x),["vapor","liquid"])
 mix_setup =  add_partial_fugacity(mixture_props, qq)
+
+# iterate to convergence
 converge_mix = fugacity_convergence(mix_setup, qq)

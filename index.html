@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <meta>
+    <meta charset="UTF-8">
+    <title>Multi-Component Flash</title>
+  </meta>
+
+
+ 
+  <body>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <!-- Bootstrap JavaScript Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+    
+
+    <div id="MC-Flash-app">
+            <my-header></my-header>
+            <img src= "./assets/wlf.png" /> 
+            <br>
+            <flash-input></flash-input>
+            <button-counter></button-counter>
+    </div>
+
+
+    <script>
+        Vue.component('my-header', {
+        data: function () {
+            return {
+            title: "Multi-component Flash",
+            descr: "Compute a two-phase flash for a 5-component system. Utilize either Peng-Robinson or SRK equations of state--with or without Penneloux volume corrections.",
+            }
+        },
+        template: `<div>
+                   <h1> {{ title }} </h1> 
+                   <p> {{ descr }} </p>
+                   </div>`
+        })  
+
+        Vue.component('button-counter', {
+        data: function () {
+            return {
+            count: 0
+            }
+        },
+        template: '<button v-on:click="count++">You clicked me {{ count }} times.</button>'
+        })
+
+
+
+      new Vue({
+        el: "#MC-Flash-app",
+        data() {
+          return {
+            msg: "Hi!"
+          }
+        }
+      });
+
+
+    </script>
+
+  </body>
+</html>
